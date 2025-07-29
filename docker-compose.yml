@@ -1,0 +1,181 @@
+version: '3.8'
+
+services:
+  # MySQL主数据库
+  mysql-master:
+    image: mysql:8.0
+    container_name: drmp-mysql-master
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: drmp123456
+      MYSQL_DATABASE: drmp
+      MYSQL_USER: drmp
+      MYSQL_PASSWORD: drmp123456
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-master-data:/var/lib/mysql
+      - ./docker/mysql/conf/master.cnf:/etc/mysql/conf.d/master.cnf
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d
+    networks:
+      - drmp-network
+
+  # Redis集群
+  redis:
+    image: redis:7-alpine
+    container_name: drmp-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - drmp-network
+
+  # Nacos服务发现与配置中心
+  nacos:
+    image: nacos/nacos-server:v2.3.0
+    container_name: drmp-nacos
+    restart: unless-stopped
+    environment:
+      MODE: standalone
+      MYSQL_SERVICE_HOST: mysql-master
+      MYSQL_SERVICE_PORT: 3306
+      MYSQL_SERVICE_DB_NAME: nacos
+      MYSQL_SERVICE_USER: drmp
+      MYSQL_SERVICE_PASSWORD: drmp123456
+      MYSQL_SERVICE_DB_PARAM: characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&allowPublicKeyRetrieval=true
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+    volumes:
+      - nacos-data:/home/nacos/data
+      - nacos-logs:/home/nacos/logs
+    depends_on:
+      - mysql-master
+    networks:
+      - drmp-network
+
+  # RocketMQ NameServer
+  rocketmq-nameserver:
+    image: apache/rocketmq:5.1.4
+    container_name: drmp-rocketmq-nameserver
+    restart: unless-stopped
+    ports:
+      - "9876:9876"
+    volumes:
+      - rocketmq-nameserver-logs:/home/rocketmq/logs
+      - rocketmq-nameserver-store:/home/rocketmq/store
+    environment:
+      JAVA_OPT_EXT: "-server -Xms512m -Xmx512m"
+    command: ["sh", "mqnamesrv"]
+    networks:
+      - drmp-network
+
+  # RocketMQ Broker
+  rocketmq-broker:
+    image: apache/rocketmq:5.1.4
+    container_name: drmp-rocketmq-broker
+    restart: unless-stopped
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+    volumes:
+      - rocketmq-broker-logs:/home/rocketmq/logs
+      - rocketmq-broker-store:/home/rocketmq/store
+      - ./docker/rocketmq/broker.conf:/home/rocketmq/rocketmq-5.1.4/conf/broker.conf
+    environment:
+      NAMESRV_ADDR: "rocketmq-nameserver:9876"
+      JAVA_OPT_EXT: "-server -Xms1g -Xmx1g"
+    command: ["sh", "mqbroker", "-c", "/home/rocketmq/rocketmq-5.1.4/conf/broker.conf"]
+    depends_on:
+      - rocketmq-nameserver
+    networks:
+      - drmp-network
+
+  # Elasticsearch
+  elasticsearch:
+    image: elasticsearch:8.11.0
+    container_name: drmp-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - xpack.security.enabled=false
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - drmp-network
+
+  # MinIO对象存储
+  minio:
+    image: minio/minio:latest
+    container_name: drmp-minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    environment:
+      MINIO_ROOT_USER: drmp
+      MINIO_ROOT_PASSWORD: drmp123456
+    command: server /data --console-address ":9001"
+    networks:
+      - drmp-network
+
+  # Nginx负载均衡
+  nginx:
+    image: nginx:alpine
+    container_name: drmp-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d
+      - ./frontend/dist:/usr/share/nginx/html
+    depends_on:
+      - drmp-gateway
+    networks:
+      - drmp-network
+
+  # API网关
+  drmp-gateway:
+    build:
+      context: .
+      dockerfile: ./docker/gateway/Dockerfile
+    container_name: drmp-gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      NACOS_SERVER: nacos:8848
+    depends_on:
+      - nacos
+      - redis
+    networks:
+      - drmp-network
+
+volumes:
+  mysql-master-data:
+  redis-data:
+  nacos-data:
+  nacos-logs:
+  rocketmq-nameserver-logs:
+  rocketmq-nameserver-store:
+  rocketmq-broker-logs:
+  rocketmq-broker-store:
+  elasticsearch-data:
+  minio-data:
+
+networks:
+  drmp-network:
+    driver: bridge
