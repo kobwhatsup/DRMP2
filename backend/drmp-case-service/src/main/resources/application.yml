@@ -1,0 +1,171 @@
+# 案件服务配置
+server:
+  port: 8082
+  servlet:
+    context-path: /case-service
+
+spring:
+  application:
+    name: drmp-case-service
+  
+  # 数据库配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/drmp_case?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:123456}
+    
+    # 连接池配置
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      idle-timeout: 300000
+      connection-timeout: 10000
+      max-lifetime: 900000
+      pool-name: CaseServiceHikariCP
+  
+  # JPA配置
+  jpa:
+    database: mysql
+    hibernate:
+      ddl-auto: validate
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.SnakeCasePhysicalNamingStrategy
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+        use_sql_comments: true
+        jdbc:
+          batch_size: 50
+          order_inserts: true
+          order_updates: true
+        cache:
+          use_second_level_cache: false
+          use_query_cache: false
+  
+  # Redis配置
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}    
+    password: ${REDIS_PASSWORD:}
+    database: 2
+    timeout: 5000ms
+    lettuce:
+      pool:
+        max-active: 20
+        max-idle: 10
+        min-idle: 5
+        max-wait: 2000ms
+  
+  # 文件上传配置
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 100MB
+      max-request-size: 100MB
+      resolve-lazily: false
+  
+  # 异步任务配置
+  task:
+    execution:
+      pool:
+        core-size: 10
+        max-size: 50
+        queue-capacity: 200
+        keep-alive: 60s
+      thread-name-prefix: case-async-
+      shutdown:
+        await-termination: true
+        await-termination-period: 60s
+
+# 日志配置
+logging:
+  level:
+    root: INFO
+    com.drmp: DEBUG
+    org.springframework.security: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+  file:
+    name: logs/case-service.log
+    max-size: 100MB
+    max-history: 30
+
+# 管理端点配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Swagger文档配置
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+  packages-to-scan: com.drmp.cases.controller
+  paths-to-match: /api/**
+
+# 自定义配置
+drmp:
+  case:
+    # 文件存储配置
+    file:
+      upload-path: ${FILE_UPLOAD_PATH:/tmp/drmp/uploads}
+      max-size: 104857600 # 100MB
+      allowed-types: xlsx,xls,csv,pdf,jpg,jpeg,png,gif
+    
+    # 导入配置
+    import:
+      batch-size: 1000
+      max-error-count: 100
+      timeout-minutes: 120
+      
+    # 分案配置  
+    assignment:
+      default-timeout-days: 7
+      max-auto-assign-count: 10
+      
+    # 缓存配置
+    cache:
+      default-ttl: 3600 # 1小时
+      statistics-ttl: 1800 # 30分钟
+      
+  # 安全配置
+  security:
+    # JWT配置
+    jwt:
+      secret: ${JWT_SECRET:drmp2024JwtSecretKeyForCaseService!@#$%^&*()}
+      expiration: 7200 # 2小时
+      refresh-expiration: 604800 # 7天
+      
+    # 加密配置
+    encrypt:
+      algorithm: AES
+      key: ${ENCRYPT_KEY:DRMP2024SecretKey!@#$%^&*()123456}
+      
+  # 外部服务配置
+  services:
+    user-service:
+      url: ${USER_SERVICE_URL:http://localhost:8081}
+      timeout: 5000
+    assignment-service:
+      url: ${ASSIGNMENT_SERVICE_URL:http://localhost:8083}
+      timeout: 10000
